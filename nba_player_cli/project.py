@@ -3,76 +3,75 @@ from typing import Any, Dict, List, Optional
 
 import requests
 
+# Base URL of the NBA API
+API_BASE = "https://api.balldontlie.io/v1"
 
-API_BASE = "https://www.balldontlie.io/api/v1"
+# API key required to access the NBA API
+API_KEY = "4764f25d-c0c9-4217-af4c-31522dd30d9d"
 
 
 def main() -> None:
     """
-    CLI usage:
-        python project.py "LeBron James"
+    Main entry point of the program.
+    - Reads the player name from command-line arguments
+    - Fetches player data from the API
+    - Displays formatted player information
     """
     if len(sys.argv) != 2:
         sys.exit('Usage: python project.py "Player Name"')
 
-    raw_name = sys.argv[1]
-    name = normalize_player_name(raw_name)
+    # Normalize user input
+    query = normalize_player_name(sys.argv[1])
+    if not query:
+        sys.exit("Error: Empty player name.")
 
-    if not name:
-        sys.exit("Error: Please provide a non-empty player name.")
-
+    # Call the API to fetch players
     try:
-        players = fetch_player_data(name)
+        players = fetch_player_data(query)
     except requests.RequestException:
-        sys.exit("Error: NBA API is unreachable right now. Please try again later.")
+        sys.exit("Error: NBA API unreachable.")
 
-    player = validate_player_result(players, name)
+    # Select the best matching player
+    player = validate_player_result(players, query)
     if player is None:
-        sys.exit("Error: No matching player found.")
+        sys.exit("Error: Player not found.")
 
+    # Display the player information
     print(format_player_info(player))
 
 
 def normalize_player_name(name: str) -> str:
     """
-    Normalize user input:
-    - trim leading/trailing spaces
-    - collapse multiple spaces
-    - lowercase for consistent searching
+    Cleans and normalizes the player name entered by the user.
+    - Removes extra spaces
+    - Converts to lowercase
     """
-    if not isinstance(name, str):
-        return ""
-    parts = name.strip().split()
-    return " ".join(parts).lower()
+    return " ".join(name.strip().lower().split())
 
 
-def fetch_player_data(name: str) -> List[Dict[str, Any]]:
+def fetch_player_data(query: str) -> List[Dict[str, Any]]:
     """
-    Fetch players from balldontlie matching the search string.
-    Returns a list of player dicts.
-    Raises requests.RequestException on network / HTTP errors.
+    Sends a request to the NBA API to search for players.
+    Returns a list of players matching the query.
     """
     url = f"{API_BASE}/players"
-    params = {"search": name, "per_page": 100}
+    params = {"search": query}
+    headers = {"Authorization": API_KEY}
 
-    resp = requests.get(url, params=params, timeout=10)
-    resp.raise_for_status()
-    data = resp.json()
-
-    # balldontlie format: {"data": [...], "meta": {...}}
-    players = data.get("data", [])
-    if not isinstance(players, list):
-        return []
-    return players
+    response = requests.get(url, params=params, headers=headers, timeout=10)
+    response.raise_for_status()
+    return response.json()["data"]
 
 
-def validate_player_result(players: List[Dict[str, Any]], normalized_query: str) -> Optional[Dict[str, Any]]:
+def validate_player_result(
+    players: List[Dict[str, Any]],
+    normalized_query: str
+) -> Optional[Dict[str, Any]]:
     """
-    Decide which player to return.
-    - If no players -> None
-    - If one player -> that player
-    - If multiple players -> prefer an exact full-name match (case-insensitive),
-      otherwise return the first result.
+    Selects the most relevant player from the API results.
+    - Returns None if no player is found
+    - Returns the exact match if possible
+    - Otherwise returns the first result
     """
     if not players:
         return None
@@ -80,48 +79,38 @@ def validate_player_result(players: List[Dict[str, Any]], normalized_query: str)
     if len(players) == 1:
         return players[0]
 
-    # Prefer exact match on "first_name last_name"
-    for p in players:
-        full = normalize_player_name(f"{p.get('first_name', '')} {p.get('last_name', '')}")
-        if full == normalized_query:
-            return p
+    for player in players:
+        full_name = normalize_player_name(
+            player["first_name"] + " " + player["last_name"]
+        )
+        if full_name == normalized_query:
+            return player
 
-    # Otherwise, best-effort: first result
     return players[0]
 
 
 def format_player_info(player: Dict[str, Any]) -> str:
     """
-    Convert player JSON dict into a readable multiline string.
-    Handles missing fields gracefully.
+    Formats the player data into a readable string.
+    Handles missing fields by displaying 'N/A'.
     """
-    first = player.get("first_name", "")
-    last = player.get("last_name", "")
+    team = player.get("team", {}).get("full_name") or "N/A"
+
+    height = player.get("height") or "N/A"
+    weight_value = player.get("weight")
+    weight = f"{weight_value} lbs" if weight_value else "N/A"
+
     position = player.get("position") or "N/A"
-
-    team = player.get("team") or {}
-    team_city = team.get("city", "")
-    team_name = team.get("name", "")
-    team_full = " ".join(part for part in [team_city, team_name] if part).strip() or "N/A"
-
-    height_feet = player.get("height_feet")
-    height_inches = player.get("height_inches")
-    if height_feet is None or height_inches is None:
-        height = "N/A"
-    else:
-        height = f"{height_feet}-{height_inches}"
-
-    weight_pounds = player.get("weight_pounds")
-    weight = f"{weight_pounds} lbs" if isinstance(weight_pounds, int) else "N/A"
-
-    full_name = " ".join(part for part in [first, last] if part).strip() or "Unknown"
+    full_name = (
+        player.get("first_name", "") + " " + player.get("last_name", "")
+    ).strip() or "Unknown"
 
     return (
-        f"Player: {full_name}\n"
-        f"Team: {team_full}\n"
-        f"Position: {position}\n"
-        f"Height: {height}\n"
-        f"Weight: {weight}"
+        "Player: " + full_name + "\n"
+        "Team: " + team + "\n"
+        "Position: " + position + "\n"
+        "Height: " + height + "\n"
+        "Weight: " + weight
     )
 
 
