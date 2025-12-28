@@ -55,13 +55,15 @@ def fetch_player_data(query: str) -> List[Dict[str, Any]]:
     Returns a list of players matching the query.
     """
     url = f"{API_BASE}/players"
-    params = {"search": query}
+
+    keyword = query.split()[0]  
+
+    params = {"search": keyword}
     headers = {"Authorization": API_KEY}
 
     response = requests.get(url, params=params, headers=headers, timeout=10)
     response.raise_for_status()
     return response.json()["data"]
-
 
 def validate_player_result(
     players: List[Dict[str, Any]],
